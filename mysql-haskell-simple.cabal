@@ -31,5 +31,8 @@ library
                      , time
                      , vector
 
+  if impl(ghc < 8.0.1)
+     build-depends:    semigroups
+
   hs-source-dirs:      src
   default-language:    Haskell98

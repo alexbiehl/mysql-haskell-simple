@@ -5,7 +5,7 @@ import           Control.Monad.ST
 import           Data.ByteString                    (ByteString)
 import           Data.Functor.Contravariant
 import           Data.Int
-import           Data.Monoid                        ((<>))
+import           Data.Semigroup
 import           Data.Text                          (Text)
 import           Data.Time
 import qualified Data.Vector                        as V
@@ -19,28 +19,25 @@ data Param a = Param !Int (Value a)
 instance Contravariant Param where
   contramap f (Param n g) = Param n (contramap f g)
 
-instance Monoid (Param a) where
-  mempty      = unitParam
-  mappend p q = appendParam p q
+instance Semigroup (Param a) where
+  p <> q = appendParam p q
+  {-# INLINE (<>) #-}
 
 newtype Value a =
   Value { runValue :: forall s. a
                    -> Int
                    -> STVector s MySQLValue
-                   -> ST s Int
+                   -> ST s ()
         }
 
 instance Contravariant Value where
   contramap f (Value g) = Value (g . f)
 
-unitParam :: Param a
-unitParam = Param 0 $ Value (\_ i _ -> return i)
-
 appendParam :: Param a -> Param a -> Param a
 appendParam (Param n1 f) (Param n2 g) =
   Param (n1 + n2) (Value $ \a i v -> do
-    j <- runValue f a i v
-    runValue g a j v)
+    runValue f a i v
+    runValue g a (i + 1) v)
 
 value :: Value a -> Param a
 value v = Param 1 v
@@ -48,20 +45,18 @@ value v = Param 1 v
 runParam :: Param a -> a -> V.Vector MySQLValue
 runParam (Param n f) a = V.create $ do
   v <- MV.unsafeNew n
-  _ <- runValue f a 0 v
+  runValue f a 0 v
   return v
 
 nullable :: Value a -> Value (Maybe a)
 nullable val = Value $ \ma i v -> do
   case ma of
     Just a  -> runValue val a i v
-    Nothing -> do MV.unsafeWrite v i MySQLNull
-                  return (i + 1)
+    Nothing -> MV.unsafeWrite v i MySQLNull
 
 mkValue :: (a -> MySQLValue) -> Value a
 mkValue f = Value $ \a i v -> do
   MV.unsafeWrite v i (f a)
-  return (i + 1)
 {-# INLINE mkValue #-}
 
 int8 :: Value Int8
