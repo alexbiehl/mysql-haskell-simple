@@ -1,18 +1,23 @@
-{-# LANGUAGE RankNTypes #-}
 module Database.MySQL.Simple.Encoder where
 
-import           Control.Monad.ST
+import           Data.Bits
 import           Data.ByteString                    (ByteString)
+import qualified Data.ByteString.Internal           as ByteString
 import           Data.Functor.Contravariant
 import           Data.Int
 import           Data.Semigroup
 import           Data.Text                          (Text)
 import           Data.Time
 import qualified Data.Vector                        as V
-import           Data.Vector.Mutable                (STVector)
+import           Data.Vector.Mutable                (IOVector)
 import qualified Data.Vector.Mutable                as MV
 import           Data.Word
-import           Database.MySQL.Protocol.MySQLValue (MySQLValue (..))
+import           Database.MySQL.Protocol.MySQLValue (BitMap (..),
+                                                     MySQLValue (..))
+import           Foreign.ForeignPtr
+import           Foreign.Ptr
+import           Foreign.Storable
+import           System.IO.Unsafe
 
 data Param a = Param !Int (Value a)
 
@@ -24,10 +29,11 @@ instance Semigroup (Param a) where
   {-# INLINE (<>) #-}
 
 newtype Value a =
-  Value { runValue :: forall s. a
+  Value { runValue :: a
                    -> Int
-                   -> STVector s MySQLValue
-                   -> ST s ()
+                   -> Ptr Word8
+                   -> IOVector MySQLValue
+                   -> IO ()
         }
 
 instance Contravariant Value where
@@ -35,28 +41,40 @@ instance Contravariant Value where
 
 appendParam :: Param a -> Param a -> Param a
 appendParam (Param n1 f) (Param n2 g) =
-  Param (n1 + n2) (Value $ \a i v -> do
-    runValue f a i v
-    runValue g a (i + 1) v)
+  Param (n1 + n2) (Value $ \a i bitmap params -> do
+    runValue f a i bitmap params
+    runValue g a (i + 1) bitmap params)
 
 value :: Value a -> Param a
 value v = Param 1 v
 
-runParam :: Param a -> a -> V.Vector MySQLValue
-runParam (Param n f) a = V.create $ do
-  v <- MV.unsafeNew n
-  runValue f a 0 v
-  return v
+runParam :: Param a -> a -> (V.Vector MySQLValue, BitMap)
+runParam (Param n f) a = unsafeDupablePerformIO $ do
+  let bitmapSize = n + 7 `unsafeShiftR` 3
+  params <- MV.unsafeNew n
+  fop    <- mallocForeignPtrBytes bitmapSize
+  withForeignPtr fop $ \op -> do
+    runValue f a 0 op params
+  params' <- V.unsafeFreeze params
+  let bitmap = BitMap (ByteString.fromForeignPtr fop 0 bitmapSize)
+  return (params', bitmap)
+
 
 nullable :: Value a -> Value (Maybe a)
-nullable val = Value $ \ma i v -> do
+nullable val = Value $ \ma i bitmap params -> do
   case ma of
-    Just a  -> runValue val a i v
-    Nothing -> MV.unsafeWrite v i MySQLNull
+    Just a  -> runValue val a i bitmap params
+    Nothing -> do
+      MV.unsafeWrite params i MySQLNull
+      let
+        op :: Ptr Word8
+        op = bitmap `plusPtr` (i `unsafeShiftR` 3)
+      b <- peek op
+      poke op (b `setBit` i .&. 3)
 
 mkValue :: (a -> MySQLValue) -> Value a
-mkValue f = Value $ \a i v -> do
-  MV.unsafeWrite v i (f a)
+mkValue f = Value $ \a i _bitmap params -> do
+  MV.unsafeWrite params i (f a)
 {-# INLINE mkValue #-}
 
 int8 :: Value Int8
@@ -99,11 +117,11 @@ text :: Value Text
 text = mkValue MySQLText
 
 
-data User = User { ua :: !Int32, ub :: !Int32, uc :: !Int32, ud :: !Text }
+data User = User { ua :: !Int32, ub :: !Int32, uc :: !Int32, ud :: !(Maybe Text) }
 
 test1 :: Param User
 test1 =
      value (contramap ua int32)
   <> value (contramap ub int32)
   <> value (contramap uc int32)
-  <> value (contramap ud text)
+  <> value (contramap ud (nullable text))
