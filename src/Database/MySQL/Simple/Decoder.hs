@@ -217,9 +217,27 @@ bytestring = Value $ \succ_ fail_ mv ->
                          MySQLBytes bs -> succ_ bs
                          _             -> fail_ InvalidValue
 
-rowDec :: Row (Int32, Int32, Int32)
-rowDec = (,,) <$> value int32
-             <*> value int32
-             <*> value int32
+date :: Value Day
+date = Value $ \succ_ fail_ mv ->
+                 case mv of
+                   MySQLDate d -> succ_ d
+                   _           -> fail_ InvalidValue
 
-test1 = maybeRow rowDec
+time :: Value TimeOfDay
+time = Value $ \succ_ fail_ mv ->
+                case mv of
+                  MySQLTime _ t -> succ_ t
+                  _             -> fail_ InvalidValue
+
+timestamp :: Value LocalTime
+timestamp = Value $ \succ_ fail_ mv ->
+                      case mv of
+                        MySQLTimeStamp t -> succ_ t
+                        _                -> fail_ InvalidValue
+
+datetime :: Value LocalTime
+datetime = Value $ \succ_ fail_ mv ->
+                     case mv of
+                       MySQLDateTime dt -> succ_ dt
+                       _                -> fail_ InvalidValue
+
