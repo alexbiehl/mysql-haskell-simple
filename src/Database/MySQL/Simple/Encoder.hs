@@ -110,6 +110,12 @@ double = mkValue MySQLDouble
 date :: Value Day
 date = mkValue MySQLDate
 
+timestamp :: Value LocalTime
+timestamp = mkValue MySQLTimeStamp
+
+datetime :: Value LocalTime
+datetime = mkValue MySQLDateTime
+
 bytestring :: Value ByteString
 bytestring = mkValue MySQLBytes
 
