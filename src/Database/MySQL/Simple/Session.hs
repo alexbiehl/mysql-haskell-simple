@@ -33,7 +33,8 @@ newtype Session a =
   Session { unSession :: MySQLConn -> StatementRegistry -> IO a }
 
 instance Functor Session where
-  fmap f (Session m) = Session $ \mysqlConn registry -> fmap f (m mysqlConn registry)
+  fmap f (Session m) = Session $ \mysqlConn registry ->
+    fmap f (m mysqlConn registry)
 
 instance Applicative Session where
   pure a = Session $ \_ _ -> pure a
@@ -64,21 +65,35 @@ prepareStatement mysqlConn query registry = do
 newtype Query a b = Query (a -> Session b)
 
 instance Category Query where
-  id = Query $ \a -> pure a
-  (Query m) . (Query n) = Query $ \a -> n a >>= \b -> m b
+  id =
+    Query $ \a -> pure a
+
+  (Query m) . (Query n) =
+    Query $ \a -> n a >>= \b -> m b
 
 instance Arrow Query where
-  arr f = Query (return . f)
-  first (Query f) = Query (\ ~(b, d) -> f b >>= \c -> return (c, d))
-  second (Query f) = Query (\ ~(d, b) -> f b >>= \c -> return (d, c))
+  arr f =
+    Query (return . f)
+
+  first (Query f) =
+    Query (\ ~(b, d) -> f b >>= \c -> return (c, d))
+
+  second (Query f) =
+    Query (\ ~(d, b) -> f b >>= \c -> return (d, c))
 
 instance Functor (Query a) where
-  fmap f (Query m) = Query $ \a -> fmap f (m a)
+  fmap f (Query m) =
+    Query $ \a -> fmap f (m a)
 
 instance Profunctor Query where
-  dimap f g (Query m) = Query $ \a -> fmap g (m (f a))
-  lmap f (Query m)    = Query $ \a -> m (f a)
-  rmap f (Query m)    = Query $ \a -> fmap f (m a)
+  dimap f g (Query m) =
+    Query $ \a -> fmap g (m (f a))
+
+  lmap f (Query m)    =
+    Query $ \a -> m (f a)
+
+  rmap f (Query m)    =
+    Query $ \a -> fmap f (m a)
 
 statement :: ByteString -> Param a -> Result b -> Query a b
 statement query param result = Query $ \a -> Session $ \mysqlConn registry -> do
