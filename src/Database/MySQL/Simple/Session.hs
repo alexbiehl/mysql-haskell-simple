@@ -65,8 +65,8 @@ newtype Query a b = Query (a -> Session b)
 
 instance Category Query where
   id = Query $ \a -> pure a
-  (Query m) . (Query n) = Query $ \a -> do x <- n a
-                                           m x
+  (Query m) . (Query n) = Query $ \a -> n a >>= \b -> m b
+
 instance Arrow Query where
   arr f = Query (return . f)
   first (Query f) = Query (\ ~(b, d) -> f b >>= \c -> return (c, d))
