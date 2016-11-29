@@ -1,5 +1,6 @@
 module Database.MySQL.Simple.Session (
     Session
+  , SessionError(..)
   , runSession
 
   , Query
@@ -9,6 +10,7 @@ module Database.MySQL.Simple.Session (
 
 import           Database.MySQL.Simple.Encoder
 import           Database.MySQL.Simple.Decoder
+import           Database.MySQL.Simple.Internal
 
 import           Control.Arrow
 import qualified Control.Category as Category
@@ -89,17 +91,17 @@ instance Profunctor Query where
   dimap f g (Query m) =
     Query $ \a -> fmap g (m (f a))
 
-  lmap f (Query m)    =
+  lmap f (Query m) =
     Query $ \a -> m (f a)
 
-  rmap f (Query m)    =
+  rmap f (Query m) =
     Query $ \a -> fmap f (m a)
 
 statement :: ByteString -> Param a -> Result b -> Query a b
 statement query param result = Query $ \a -> Session $ \mysqlConn registry -> do
-  let (values, _) = runParam param a
+  let (values, nullmap) = runParam param a
   stmt        <- prepareStatement mysqlConn query registry
-  (_, rows)   <- MySQL.queryStmtVector mysqlConn stmt (Vector.toList values)
+  (_, rows)   <- queryVectorInternal mysqlConn stmt values nullmap
   res         <- runResult result rows
   case res of
     Right b  -> return b
@@ -127,3 +129,4 @@ runSession mysqlConn session = do
       | Just MySQL.ERRException{} <- cast exc        -> return $ Left (SessMySQLErr err)
       | Just MySQL.WrongParamsCount{} <- cast exc    -> return $ Left (SessMySQLErr err)
       | otherwise                                    -> throwIO err
+    

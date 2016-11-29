@@ -20,6 +20,8 @@ library
                        Database.MySQL.Simple.Decoder
                        Database.MySQL.Simple.Session
 
+  other-modules:       Database.MySQL.Simple.Internal
+                       
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.9 && <4.10
