@@ -1,4 +1,28 @@
-module Database.MySQL.Simple.Encoder where
+module Database.MySQL.Simple.Encoder (
+    Params
+  , runParams
+  , unit
+  , param
+
+  , Value
+  , nullable
+
+  , int8
+  , word8
+  , int16
+  , word16
+  , int32
+  , word32
+  , int64
+  , word64
+  , float
+  , double
+  , date
+  , timestamp
+  , datetime
+  , bytestring
+  , text
+  ) where
 
 import           Data.Bits
 import           Data.ByteString                    (ByteString)
@@ -51,8 +75,8 @@ unit = Params 0 (Value (\_ _ _ _ -> return ()))
 param :: Value a -> Params a
 param v = Params 1 v
 
-runParam :: Params a -> a -> (V.Vector MySQLValue, BitMap)
-runParam (Params n f) a = unsafeDupablePerformIO $ do
+runParams :: Params a -> a -> (V.Vector MySQLValue, BitMap)
+runParams (Params n f) a = unsafeDupablePerformIO $ do
   let bitmapSize = n + 7 `unsafeShiftR` 3
   params <- MV.unsafeNew n
   fop    <- mallocForeignPtrBytes bitmapSize

@@ -99,7 +99,7 @@ instance Profunctor Query where
 
 statement :: ByteString -> Params a -> Result b -> Query a b
 statement query param result = Query $ \a -> Session $ \mysqlConn registry -> do
-  let (values, nullmap) = runParam param a
+  let (values, nullmap) = runParams param a
   stmt        <- prepareStatement mysqlConn query registry
   (_, rows)   <- queryVectorInternal mysqlConn stmt values nullmap
   res         <- runResult result rows

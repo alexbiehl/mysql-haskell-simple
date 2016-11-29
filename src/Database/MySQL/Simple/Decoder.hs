@@ -1,11 +1,42 @@
 {-# LANGUAGE RankNTypes #-}
-module Database.MySQL.Simple.Decoder where
+module Database.MySQL.Simple.Decoder (
+    Result
+  , runResult
+
+  , Row
+  , runRow
+  , rowsVector
+  , rowsList
+  , foldlRows
+  , foldrRows
+
+  , Value
+  , col
+  , nullable
+
+  , DecodingError(..)
+  , QueryError(..)
+
+  , int8
+  , word8
+  , int16
+  , word16
+  , int32
+  , word32
+  , int64
+  , word64
+  , float
+  , double
+  , date
+  , timestamp
+  , datetime
+  , bytestring
+  , text
+  ) where
 
 import           Control.Exception
-import           Control.Monad.ST
 import           Data.Bifunctor
 import           Data.ByteString                    (ByteString)
-import           Data.Functor.Contravariant
 import           Data.Int
 import           Data.Text                          (Text)
 import           Data.Time
@@ -15,7 +46,6 @@ import qualified Data.Vector.Mutable                as MV
 import           Data.Word
 import           Database.MySQL.Protocol.MySQLValue (MySQLValue (..))
 import qualified System.IO.Streams                  as Streams
-import qualified System.IO.Streams.Combinators      as Streams
 
 data DecodingError = InvalidValue
                    | InvalidRow
@@ -24,12 +54,12 @@ data DecodingError = InvalidValue
 type DecodeResult a = Either DecodingError a
 
 data Row a =
-  Row { rowCols   :: !Int
-      , rowDecode :: forall r. (a -> Int -> DecodeResult r)
-                  -> (DecodingError -> DecodeResult r)
-                  -> Vector MySQLValue
-                  -> Int
-                  -> DecodeResult r
+  Row { _rowCols   :: !Int
+      , _rowDecode :: forall r. (a -> Int -> DecodeResult r)
+                   -> (DecodingError -> DecodeResult r)
+                   -> Vector MySQLValue
+                   -> Int
+                   -> DecodeResult r
       }
 
 instance Functor Row where
@@ -239,4 +269,3 @@ datetime = Value $ \succ_ fail_ mv ->
                      case mv of
                        MySQLDateTime dt -> succ_ dt
                        _                -> fail_ InvalidValue
-
