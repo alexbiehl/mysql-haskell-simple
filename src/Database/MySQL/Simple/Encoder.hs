@@ -45,8 +45,8 @@ appendParam (Param n1 f) (Param n2 g) =
     runValue f a i bitmap params
     runValue g a (i + 1) bitmap params)
 
-value :: Value a -> Param a
-value v = Param 1 v
+param :: Value a -> Param a
+param v = Param 1 v
 
 runParam :: Param a -> a -> (V.Vector MySQLValue, BitMap)
 runParam (Param n f) a = unsafeDupablePerformIO $ do
@@ -122,12 +122,11 @@ bytestring = mkValue MySQLBytes
 text :: Value Text
 text = mkValue MySQLText
 
-
 data User = User { ua :: !Int32, ub :: !Int32, uc :: !Int32, ud :: !(Maybe Text) }
 
 test1 :: Param User
 test1 =
-     value (contramap ua int32)
-  <> value (contramap ub int32)
-  <> value (contramap uc int32)
-  <> value (contramap ud (nullable text))
+     param (contramap ua int32)
+  <> param (contramap ub int32)
+  <> param (contramap uc int32)
+  <> param (contramap ud (nullable text))

@@ -71,10 +71,9 @@ instance Functor Result where
   fmap f (Result g) = Result $ \s -> do r <- g s
                                         return (fmap f r)
 
-value :: Value a -> Row a
-value val = Row 1 $ \succ_ fail_ v i ->
+col :: Value a -> Row a
+col val = Row 1 $ \succ_ fail_ v i ->
   runValue val (\a -> succ_ a (i + 1)) fail_ (V.unsafeIndex v i)
-{-# INLINE value #-}
 
 runRow :: Row a -> Vector MySQLValue -> Either QueryError a
 runRow (Row cols decode) v
