@@ -1,6 +1,7 @@
 {-# LANGUAGE RankNTypes #-}
 module Database.MySQL.Simple.Decoder where
 
+import           Control.Exception
 import           Control.Monad.ST
 import           Data.Bifunctor
 import           Data.ByteString                    (ByteString)
@@ -18,6 +19,7 @@ import qualified System.IO.Streams.Combinators      as Streams
 
 data DecodingError = InvalidValue
                    | InvalidRow
+                   deriving (Show)
 
 type DecodeResult a = Either DecodingError a
 
@@ -56,6 +58,9 @@ instance Functor Value where
   {-# INLINE fmap #-}
 
 data QueryError = QueryError DecodingError
+                deriving (Show)
+
+instance Exception QueryError
 
 newtype Result a =
   Result { runResult :: Streams.InputStream (Vector MySQLValue)
