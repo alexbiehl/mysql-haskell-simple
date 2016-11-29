@@ -19,12 +19,12 @@ import           Foreign.Ptr
 import           Foreign.Storable
 import           System.IO.Unsafe
 
-data Param a = Param !Int (Value a)
+data Params a = Params !Int (Value a)
 
-instance Contravariant Param where
-  contramap f (Param n g) = Param n (contramap f g)
+instance Contravariant Params where
+  contramap f (Params n g) = Params n (contramap f g)
 
-instance Semigroup (Param a) where
+instance Semigroup (Params a) where
   p <> q = appendParam p q
   {-# INLINE (<>) #-}
 
@@ -39,22 +39,24 @@ newtype Value a =
 instance Contravariant Value where
   contramap f (Value g) = Value (g . f)
 
-appendParam :: Param a -> Param a -> Param a
-appendParam (Param n1 f) (Param n2 g) =
-  Param (n1 + n2) (Value $ \a i bitmap params -> do
+appendParam :: Params a -> Params a -> Params a
+appendParam (Params n1 f) (Params n2 g) =
+  Params (n1 + n2) (Value $ \a i bitmap params -> do
     runValue f a i bitmap params
     runValue g a (i + 1) bitmap params)
 
-param :: Value a -> Param a
-param v = Param 1 v
+unit :: Params ()
+unit = Params 0 (Value (\_ _ _ _ -> return ()))
 
-runParam :: Param a -> a -> (V.Vector MySQLValue, BitMap)
-runParam (Param n f) a = unsafeDupablePerformIO $ do
+param :: Value a -> Params a
+param v = Params 1 v
+
+runParam :: Params a -> a -> (V.Vector MySQLValue, BitMap)
+runParam (Params n f) a = unsafeDupablePerformIO $ do
   let bitmapSize = n + 7 `unsafeShiftR` 3
   params <- MV.unsafeNew n
   fop    <- mallocForeignPtrBytes bitmapSize
-  withForeignPtr fop $ \op -> do
-    runValue f a 0 op params
+  withForeignPtr fop $ \op -> runValue f a 0 op params
   params' <- V.unsafeFreeze params
   let bitmap = BitMap (ByteString.fromForeignPtr fop 0 bitmapSize)
   return (params', bitmap)
@@ -124,7 +126,7 @@ text = mkValue MySQLText
 
 data User = User { ua :: !Int32, ub :: !Int32, uc :: !Int32, ud :: !(Maybe Text) }
 
-test1 :: Param User
+test1 :: Params User
 test1 =
      param (contramap ua int32)
   <> param (contramap ub int32)

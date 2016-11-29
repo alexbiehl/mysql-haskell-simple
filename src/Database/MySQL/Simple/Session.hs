@@ -97,7 +97,7 @@ instance Profunctor Query where
   rmap f (Query m) =
     Query $ \a -> fmap f (m a)
 
-statement :: ByteString -> Param a -> Result b -> Query a b
+statement :: ByteString -> Params a -> Result b -> Query a b
 statement query param result = Query $ \a -> Session $ \mysqlConn registry -> do
   let (values, nullmap) = runParam param a
   stmt        <- prepareStatement mysqlConn query registry
@@ -129,4 +129,3 @@ runSession mysqlConn session = do
       | Just MySQL.ERRException{} <- cast exc        -> return $ Left (SessMySQLErr err)
       | Just MySQL.WrongParamsCount{} <- cast exc    -> return $ Left (SessMySQLErr err)
       | otherwise                                    -> throwIO err
-    
