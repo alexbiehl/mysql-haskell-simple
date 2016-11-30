@@ -96,7 +96,7 @@ nullable val = Value $ \ma i bitmap params -> do
         op :: Ptr Word8
         op = bitmap `plusPtr` (i `unsafeShiftR` 3)
       b <- peek op
-      poke op (b `setBit` i .&. 3)
+      poke op (b `setBit` i .&. 7)
 
 mkValue :: (a -> MySQLValue) -> Value a
 mkValue f = Value $ \a i _bitmap params -> do
