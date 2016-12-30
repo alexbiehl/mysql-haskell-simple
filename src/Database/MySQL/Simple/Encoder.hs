@@ -79,7 +79,7 @@ runParams :: Params a -> a -> (V.Vector MySQLValue, BitMap)
 runParams (Params n f) a = unsafeDupablePerformIO $ do
   let bitmapSize = n + 7 `unsafeShiftR` 3
   params <- MV.unsafeNew n
-  fop    <- mallocForeignPtrBytes bitmapSize
+  fop    <- mallocPlainForeignPtrBytes bitmapSize
   withForeignPtr fop $ \op -> runValue f a 0 op params
   params' <- V.unsafeFreeze params
   let bitmap = BitMap (ByteString.fromForeignPtr fop 0 bitmapSize)
