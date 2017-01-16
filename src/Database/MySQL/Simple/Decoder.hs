@@ -5,13 +5,12 @@ module Database.MySQL.Simple.Decoder (
 
   , Row
   , runRow
+  , maybeRow
   , rowsVector
-  , rowsList
   , foldlRows
-  , foldrRows
 
   , Value
-  , col
+  , column
   , nullable
 
   , DecodingError(..)
@@ -28,21 +27,24 @@ module Database.MySQL.Simple.Decoder (
   , float
   , double
   , date
+  , time
   , timestamp
   , datetime
   , bytestring
   , text
+
+
+  , test1
+  , testRes
   ) where
 
 import           Control.Exception
-import           Data.Bifunctor
 import           Data.ByteString                    (ByteString)
 import           Data.Int
 import           Data.Text                          (Text)
 import           Data.Time
 import           Data.Vector                        (Vector)
-import qualified Data.Vector                        as V
-import qualified Data.Vector.Mutable                as MV
+import qualified Data.Vector                        as Vector
 import           Data.Word
 import           Database.MySQL.Protocol.MySQLValue (MySQLValue (..))
 import qualified System.IO.Streams                  as Streams
@@ -51,15 +53,13 @@ data DecodingError = InvalidValue
                    | InvalidRow
                    deriving (Show)
 
-type DecodeResult a = Either DecodingError a
-
 data Row a =
   Row { _rowCols   :: !Int
-      , _rowDecode :: forall r. (a -> Int -> DecodeResult r)
-                   -> (DecodingError -> DecodeResult r)
+      , _rowDecode :: forall r. (a -> Int -> r)
+                   -> (DecodingError -> r)
                    -> Vector MySQLValue
                    -> Int
-                   -> DecodeResult r
+                   -> r
       }
 
 instance Functor Row where
@@ -76,10 +76,10 @@ instance Applicative Row where
   {-# INLINE (<*>) #-}
 
 newtype Value a =
-  Value { runValue :: forall r. (a -> DecodeResult r)
-                   -> (DecodingError -> DecodeResult r)
+  Value { runValue :: forall r. (a -> r)
+                   -> (DecodingError -> r)
                    -> MySQLValue
-                   -> DecodeResult r
+                   -> r
         }
 
 instance Functor Value where
@@ -98,50 +98,66 @@ newtype Result a =
          }
 
 instance Functor Result where
-  fmap f (Result g) = Result $ \s -> do r <- g s
-                                        return (fmap f r)
+  fmap f (Result g) = Result $ \is ->
+    fmap f <$> g is
+  {-# INLINE fmap #-}
 
-col :: Value a -> Row a
-col val = Row 1 $ \succ_ fail_ v i ->
-  runValue val (\a -> succ_ a (i + 1)) fail_ (V.unsafeIndex v i)
+column :: Value a -> Row a
+column valueDecoder = Row 1 $ \succ_ fail_ values i -> do
+  runValue 
+    valueDecoder
+    (\a -> succ_ a i)
+    fail_
+    (Vector.unsafeIndex values i)
+{-# INLINE column #-}
 
-runRow :: Row a -> Vector MySQLValue -> Either QueryError a
-runRow (Row cols decode) v
-  | V.length v == cols =
-    bimap (\e -> QueryError e) (\x -> x) $
-      decode (\a _ -> Right a) (\e -> Left e) v 0
+runRow :: forall a r. Row a
+       -> Vector MySQLValue
+       -> (a -> r)
+       -> (QueryError -> r)
+       -> r
+runRow (Row columns decodeRow) values succ_ fail_
+  | Vector.length values == columns = do
+      decodeRow
+        (\a _ -> succ_ a)
+        (fail_ . QueryError)
+        values
+        0
   | otherwise =
-    Left (QueryError InvalidRow)
+      fail_ (QueryError InvalidRow)
+{-# INLINE runRow #-}
 
 maybeRow :: Row a -> Result (Maybe a)
-maybeRow row = Result $ \is -> do
-  mr <- Streams.read is
-  case mr of
-    Just r -> case runRow row r of
-      Right a -> return $! Right $! Just $! a
-      Left e  -> return $ Left e
+maybeRow rowDecoder = Result $ \is -> do
+  mrow <- Streams.read is
+  case mrow of
+    Just row  -> do
+      runRow
+        rowDecoder
+        row
+        (return . Right . Just)
+        (return . Left)
     Nothing -> return (Right Nothing)
+{-# INLINE maybeRow #-}
 
 -- for result methods we first new more efficient accessors in mysql-haskell
 rowsVector :: Row a -> Result (Vector a)
 rowsVector row = undefined
 
-rowsList :: Row a -> Result [a]
-rowsList row = foldrRows (:) [] row
-
 foldlRows :: (a -> b -> a) -> a -> Row b -> Result a
-foldlRows f z row = Result $ \is -> loop is z
+foldlRows step zero rowDecoder = Result $ \is -> loop is zero
   where
     loop is s = do
-      ma <- Streams.read is
-      case ma of
-        Just a -> case runRow row a of
-          Right a -> loop is $! (f s a)
-          Left e  -> return $ Left e
+      mrow <- Streams.read is
+      case mrow of
+        Just row -> do
+          runRow
+            rowDecoder
+            row
+            (\a -> loop is $! step s a)
+            (\e -> return (Left e))
         Nothing -> return (Right s)
-
-foldrRows :: (b -> a -> a) -> a -> Row b -> Result a
-foldrRows f z row = Result $ \is -> undefined
+{-# INLINE foldlRows #-}
 
 nullable :: Value a -> Value (Maybe a)
 nullable (Value val) = Value $ \succ_ fail_ v ->
@@ -269,3 +285,14 @@ datetime = Value $ \succ_ fail_ mv ->
                      case mv of
                        MySQLDateTime dt -> succ_ dt
                        _                -> fail_ InvalidValue
+
+data User = User { ua :: !Int32, ub :: !Int32, uc :: !Int32, ud :: !(Maybe Text) }
+
+test1 :: Row User
+test1 =
+  User <$> column int32 <*> column int32 <*> column int32 <*> column (nullable text)
+{-# INLINE test1 #-}
+
+testRes :: Result Int
+testRes = foldlRows (\count _user -> count + 1) 0 test1
+{-# INLINE testRes #-}
