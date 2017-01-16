@@ -41,6 +41,7 @@ import           Database.MySQL.Protocol.MySQLValue (BitMap (..),
 import           Foreign.ForeignPtr
 import           Foreign.Ptr
 import           Foreign.Storable
+import           GHC.ForeignPtr                     (mallocPlainForeignPtrBytes)
 import           System.IO.Unsafe
 
 data Params a = Params !Int (Value a)

@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternGuards #-}
 module Database.MySQL.Simple.Session (
     Session
   , SessionError(..)
@@ -23,7 +24,6 @@ import           Data.HashTable.IO (BasicHashTable)
 import qualified Data.HashTable.IO as HashTable
 import           Data.Profunctor
 import           Data.Typeable
-import qualified Data.Vector as Vector
 import           Database.MySQL.Base (MySQLConn)
 import qualified Database.MySQL.Base as MySQL
 
@@ -53,15 +53,15 @@ instance MonadIO Session where
   liftIO m = Session $ \_ _ -> m
 
 prepareStatement :: MySQLConn -> ByteString -> StatementRegistry -> IO Statement
-prepareStatement mysqlConn query registry = do
-  mstmt <- HashTable.lookup registry query
+prepareStatement mysqlConn qry registry = do
+  mstmt <- HashTable.lookup registry qry
   case mstmt of
     Just stmt -> return stmt
     Nothing   -> do
       stmt <- MySQL.prepareStmt
               mysqlConn
-              (MySQL.Query (LByteString.fromStrict query))
-      HashTable.insert registry query stmt
+              (MySQL.Query (LByteString.fromStrict qry))
+      HashTable.insert registry qry stmt
       return stmt
 
 newtype Query a b = Query (a -> Session b)
@@ -98,9 +98,9 @@ instance Profunctor Query where
     Query $ \a -> fmap f (m a)
 
 statement :: ByteString -> Params a -> Result b -> Query a b
-statement query param result = Query $ \a -> Session $ \mysqlConn registry -> do
-  let (values, nullmap) = runParams param a
-  stmt        <- prepareStatement mysqlConn query registry
+statement qry prm result = Query $ \a -> Session $ \mysqlConn registry -> do
+  let (values, nullmap) = runParams prm a
+  stmt        <- prepareStatement mysqlConn qry registry
   (_, rows)   <- queryVectorInternal mysqlConn stmt values nullmap
   res         <- runResult result rows
   case res of
