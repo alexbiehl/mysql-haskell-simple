@@ -5,10 +5,9 @@ module Database.MySQL.Simple.Decoder (
   , runResult
 
   , Row
-  , runRow
   , maybeRow
   , rowsVector
-  , foldlRows
+  , foldRows
 
   , Value
   , column
@@ -57,6 +56,7 @@ data DecodingError = InvalidValue
                    | InvalidRow
                    deriving (Show)
 
+-- | Decodes a row of @MySQLValue@s.
 data Row a =
   Row { rowCols    :: !Int
       , _rowDecode :: forall r. (a -> Int -> r)
@@ -79,6 +79,7 @@ instance Applicative Row where
     fm (\f j -> am (\a k -> succ_ (f a) k) fail_ v j) fail_ v i
   {-# INLINE (<*>) #-}
 
+-- | A decoder for a single column value.
 newtype Value a =
   Value { runValue :: forall r. (a -> r)
                    -> (DecodingError -> r)
@@ -96,6 +97,7 @@ data QueryError = QueryError DecodingError
 
 instance Exception QueryError
 
+-- | Processes a stream of result rows.
 newtype Result a =
   Result { runResult :: Vector ColumnDef
                      -> Streams.InputStream (Vector MySQLValue)
@@ -107,6 +109,7 @@ instance Functor Result where
     fmap f <$> g defs is
   {-# INLINE fmap #-}
 
+-- | Lift a column decoder to a @Row@ with a single column.
 column :: Value a -> Row a
 column valueDecoder = Row 1 $ \succ_ fail_ values i -> do
   runValue 
@@ -132,6 +135,7 @@ runRow (Row columns decodeRow) values succ_ fail_
       fail_ (QueryError InvalidRow)
 {-# INLINE runRow #-}
 
+-- | Take a single row from the result set.
 maybeRow :: Row a -> Result (Maybe a)
 maybeRow rowDecoder = Result $ \defs is -> do
   case rowCols rowDecoder == Vector.length defs of
@@ -148,7 +152,7 @@ maybeRow rowDecoder = Result $ \defs is -> do
         Nothing -> return (Right Nothing)
 {-# INLINE maybeRow #-}
 
--- for result methods we first new more efficient accessors in mysql-haskell
+-- | Put all rows from the result set into a @Vector@.
 rowsVector :: Row a -> Result (Vector a)
 rowsVector rowDecoder =
   rowsVectorSized dEFAULT_BUFSIZE rowDecoder
@@ -156,6 +160,8 @@ rowsVector rowDecoder =
     dEFAULT_BUFSIZE = 64
 {-# INLINE rowsVector #-}
 
+-- | Put all rows from the result set into a @Vector@ with a given
+-- initial size.
 rowsVectorSized :: Int -> Row a -> Result (Vector a)
 rowsVectorSized initialSize rowDecoder = Result $ \defs is -> do
   case rowCols rowDecoder == Vector.length defs of
@@ -196,8 +202,9 @@ rowsVectorSized initialSize rowDecoder = Result $ \defs is -> do
       MVector.unsafeGrow v (max (MVector.length v) 1)
 {-# INLINE rowsVectorSized #-}
 
-foldlRows :: (a -> b -> a) -> a -> Row b -> Result a
-foldlRows step zero rowDecoder = Result $ \defs is -> do
+-- | Fold over all rows in the result set.
+foldRows :: (a -> b -> a) -> a -> Row b -> Result a
+foldRows step zero rowDecoder = Result $ \defs is -> do
   case rowCols rowDecoder == Vector.length defs of
     False -> return $ Left (QueryError InvalidRow)
     True -> loop is zero
@@ -210,9 +217,9 @@ foldlRows step zero rowDecoder = Result $ \defs is -> do
             rowDecoder
             row
             (\a -> loop is $! step s a)
-            (\e -> return (Left e))
+            (return . Left)
         Nothing -> return (Right s)
-{-# INLINE foldlRows #-}
+{-# INLINE foldRows #-}
 
 nullable :: Value a -> Value (Maybe a)
 nullable (Value val) = Value $ \succ_ fail_ v ->
