@@ -49,6 +49,7 @@ import qualified Data.Vector                        as Vector
 import           Data.Vector.Mutable                (IOVector)
 import qualified Data.Vector.Mutable                as MVector
 import           Data.Word
+import           Database.MySQL.Protocol.ColumnDef  (ColumnDef)
 import           Database.MySQL.Protocol.MySQLValue (MySQLValue (..))
 import qualified System.IO.Streams                  as Streams
 
@@ -57,7 +58,7 @@ data DecodingError = InvalidValue
                    deriving (Show)
 
 data Row a =
-  Row { _rowCols   :: !Int
+  Row { rowCols    :: !Int
       , _rowDecode :: forall r. (a -> Int -> r)
                    -> (DecodingError -> r)
                    -> Vector MySQLValue
@@ -96,13 +97,14 @@ data QueryError = QueryError DecodingError
 instance Exception QueryError
 
 newtype Result a =
-  Result { runResult :: Streams.InputStream (Vector MySQLValue)
+  Result { runResult :: Vector ColumnDef
+                     -> Streams.InputStream (Vector MySQLValue)
                      -> IO (Either QueryError a)
          }
 
 instance Functor Result where
-  fmap f (Result g) = Result $ \is ->
-    fmap f <$> g is
+  fmap f (Result g) = Result $ \defs is ->
+    fmap f <$> g defs is
   {-# INLINE fmap #-}
 
 column :: Value a -> Row a
@@ -131,16 +133,19 @@ runRow (Row columns decodeRow) values succ_ fail_
 {-# INLINE runRow #-}
 
 maybeRow :: Row a -> Result (Maybe a)
-maybeRow rowDecoder = Result $ \is -> do
-  mrow <- Streams.read is
-  case mrow of
-    Just row  -> do
-      runRow
-        rowDecoder
-        row
-        (return . Right . Just)
-        (return . Left)
-    Nothing -> return (Right Nothing)
+maybeRow rowDecoder = Result $ \defs is -> do
+  case rowCols rowDecoder == Vector.length defs of
+    False -> return $ Left (QueryError InvalidRow)
+    True -> do 
+      mrow <- Streams.read is
+      case mrow of
+        Just row  -> do
+          runRow
+            rowDecoder
+            row
+            (return . Right . Just)
+            (return . Left)
+        Nothing -> return (Right Nothing)
 {-# INLINE maybeRow #-}
 
 -- for result methods we first new more efficient accessors in mysql-haskell
@@ -152,9 +157,12 @@ rowsVector rowDecoder =
 {-# INLINE rowsVector #-}
 
 rowsVectorSized :: Int -> Row a -> Result (Vector a)
-rowsVectorSized initialSize rowDecoder = Result $ \is -> do
-  v <- MVector.unsafeNew initialSize
-  loop is 0 v
+rowsVectorSized initialSize rowDecoder = Result $ \defs is -> do
+  case rowCols rowDecoder == Vector.length defs of
+    False -> return $ Left (QueryError InvalidRow)
+    True -> do
+      v <- MVector.unsafeNew initialSize
+      loop is 0 v
   where
     loop !is !i !v = do
       mrow <- Streams.read is
@@ -164,7 +172,7 @@ rowsVectorSized initialSize rowDecoder = Result $ \is -> do
             rowDecoder
             row
             (\a -> loop is (i + 1) =<< append v i a)
-            (\e -> return (Left e))
+            (return . Left)
         Nothing -> do
           v' <- Vector.unsafeFreeze $ MVector.unsafeSlice 0 i v
           return $! (Right v')
@@ -189,7 +197,10 @@ rowsVectorSized initialSize rowDecoder = Result $ \is -> do
 {-# INLINE rowsVectorSized #-}
 
 foldlRows :: (a -> b -> a) -> a -> Row b -> Result a
-foldlRows step zero rowDecoder = Result $ \is -> loop is zero
+foldlRows step zero rowDecoder = Result $ \defs is -> do
+  case rowCols rowDecoder == Vector.length defs of
+    False -> return $ Left (QueryError InvalidRow)
+    True -> loop is zero
   where
     loop !is !s = do
       mrow <- Streams.read is

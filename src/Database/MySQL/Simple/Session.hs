@@ -100,9 +100,9 @@ instance Profunctor Query where
 statement :: ByteString -> Params a -> Result b -> Query a b
 statement qry prm result = Query $ \a -> Session $ \mysqlConn registry -> do
   let (values, nullmap) = runParams prm a
-  stmt        <- prepareStatement mysqlConn qry registry
-  (_, rows)   <- queryVectorInternal mysqlConn stmt values nullmap
-  res         <- runResult result rows
+  stmt         <- prepareStatement mysqlConn qry registry
+  (defs, rows) <- queryVectorInternal mysqlConn stmt values nullmap
+  res          <- runResult result defs rows
   case res of
     Right b  -> return b
     Left err -> throwIO err
