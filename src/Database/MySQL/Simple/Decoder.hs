@@ -1,4 +1,5 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes   #-}
 module Database.MySQL.Simple.Decoder (
     Result
   , runResult
@@ -43,8 +44,10 @@ import           Data.ByteString                    (ByteString)
 import           Data.Int
 import           Data.Text                          (Text)
 import           Data.Time
-import           Data.Vector                        (Vector)
+import           Data.Vector                        (Vector, MVector)
 import qualified Data.Vector                        as Vector
+import           Data.Vector.Mutable                (IOVector)
+import qualified Data.Vector.Mutable                as MVector
 import           Data.Word
 import           Database.MySQL.Protocol.MySQLValue (MySQLValue (..))
 import qualified System.IO.Streams                  as Streams
@@ -142,12 +145,53 @@ maybeRow rowDecoder = Result $ \is -> do
 
 -- for result methods we first new more efficient accessors in mysql-haskell
 rowsVector :: Row a -> Result (Vector a)
-rowsVector row = undefined
+rowsVector rowDecoder =
+  rowsVectorSized dEFAULT_BUFSIZE rowDecoder
+  where
+    dEFAULT_BUFSIZE = 64
+{-# INLINE rowsVector #-}
+
+rowsVectorSized :: Int -> Row a -> Result (Vector a)
+rowsVectorSized initialSize rowDecoder = Result $ \is -> do
+  v <- MVector.unsafeNew initialSize
+  loop is 0 v
+  where
+    loop !is !i !v = do
+      mrow <- Streams.read is
+      case mrow of
+        Just row -> do
+          runRow
+            rowDecoder
+            row
+            (\a -> loop is (i + 1) =<< append v i a)
+            (\e -> return (Left e))
+        Nothing -> do
+          v' <- Vector.unsafeFreeze $ MVector.unsafeSlice 0 i v
+          return $! (Right v')
+
+    append :: IOVector a
+           -> Int
+           -> a
+           -> IO (IOVector a)
+    append v i x
+      | i < MVector.length v = do
+          MVector.unsafeWrite v i x
+          return v
+      | otherwise = do
+          v' <- enlarge v
+          MVector.unsafeWrite v' i x
+          return v'
+
+    enlarge :: IOVector a
+            -> IO (IOVector a)
+    enlarge v =
+      MVector.unsafeGrow v (max (MVector.length v) 1)
+{-# INLINE rowsVectorSized #-}
 
 foldlRows :: (a -> b -> a) -> a -> Row b -> Result a
 foldlRows step zero rowDecoder = Result $ \is -> loop is zero
   where
-    loop is s = do
+    loop !is !s = do
       mrow <- Streams.read is
       case mrow of
         Just row -> do
@@ -293,6 +337,6 @@ test1 =
   User <$> column int32 <*> column int32 <*> column int32 <*> column (nullable text)
 {-# INLINE test1 #-}
 
-testRes :: Result Int
-testRes = foldlRows (\count _user -> count + 1) 0 test1
+testRes :: Result (Vector User)
+testRes = rowsVector test1 -- foldlRows (\count _user -> count + 1) 0 test1
 {-# INLINE testRes #-}
