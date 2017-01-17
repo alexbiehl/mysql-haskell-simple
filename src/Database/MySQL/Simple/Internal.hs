@@ -7,7 +7,6 @@ import           Data.IORef
 import qualified Data.Vector as V
 import           Database.MySQL.Base
 import           Database.MySQL.Connection
-import           Database.MySQL.Protocol.MySQLValue
 import           System.IO.Streams
 import qualified System.IO.Streams as Stream
 

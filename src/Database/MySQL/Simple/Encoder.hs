@@ -44,6 +44,7 @@ import           Foreign.Storable
 import           GHC.ForeignPtr                     (mallocPlainForeignPtrBytes)
 import           System.IO.Unsafe
 
+-- | Encodes params for a query.
 data Params a = Params !Int (Value a)
 
 instance Contravariant Params where
@@ -53,6 +54,7 @@ instance Semigroup (Params a) where
   p <> q = appendParam p q
   {-# INLINE (<>) #-}
 
+-- | Encode a value for a single column.
 newtype Value a =
   Value { runValue :: a
                    -> Int
@@ -70,22 +72,26 @@ appendParam (Params n1 f) (Params n2 g) =
     runValue f a i bitmap params
     runValue g a (i + 1) bitmap params)
 
+-- | Encodes a 0-length column.
 unit :: Params ()
 unit = Params 0 (Value (\_ _ _ _ -> return ()))
 
+-- | Lift a single-column encoder to a params encoder.
 param :: Value a -> Params a
 param v = Params 1 v
 
+-- | Encode a value into a vector of @MySQLValue@ and a @BitMap@.
 runParams :: Params a -> a -> (V.Vector MySQLValue, BitMap)
 runParams (Params n f) a = unsafeDupablePerformIO $ do
-  let bitmapSize = n + 7 `unsafeShiftR` 3
   params <- MV.unsafeNew n
-  fop    <- mallocPlainForeignPtrBytes bitmapSize
+  fop    <- mallocPlainForeignPtrBytes bitmap_size
+  let bitmap =
+        BitMap (ByteString.fromForeignPtr fop 0 bitmap_size)
   withForeignPtr fop $ \op -> runValue f a 0 op params
   params' <- V.unsafeFreeze params
-  let bitmap = BitMap (ByteString.fromForeignPtr fop 0 bitmapSize)
   return (params', bitmap)
-
+  where
+    bitmap_size = n + 7 `unsafeShiftR` 3
 
 nullable :: Value a -> Value (Maybe a)
 nullable val = Value $ \ma i bitmap params -> do
